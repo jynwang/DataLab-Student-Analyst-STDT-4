@@ -1,0 +1,122 @@
+#######################################################################
+
+library(dplyr)
+library(readxl)
+
+
+##读取分级标准
+classify <- read_excel("C:/Users/Wang/Desktop/classify.xlsx")
+classify  = as.matrix(classify )
+
+classify <- read_excel("E:/r/classify.xlsx")
+classify  = as.matrix(classify )
+
+##建立分级函数
+classification <-function(Mtico){
+  M=case_when(
+    Mtico <classify[1]~"DD",
+    Mtico <classify[2]~"D",
+    Mtico <classify[3]~"C1",
+    Mtico <classify[4]~"C2",
+    Mtico <classify[5]~"B1",
+    Mtico <classify[6]~"B2",
+    Mtico <classify[7]~"A2",
+    Mtico <classify[8]~"A1",
+    Mtico <classify[9]~"S2",
+    Mtico <classify[10]~"S1",
+    Mtico <classify[11]~"SS2",
+    Mtico >=classify[11]~"SS1"
+  )
+  M=as.matrix(M)
+}
+
+
+##设置一级权重
+W <- matrix(c(0.35,0.2,0.2,0.15,0.1),1,5)
+
+##计算二级实际权重
+w1 <- matrix(c(0.1,0.18,0.18,0.18,0.18,0.18),6,1)*W[1]
+w2 <- matrix(c(0.15,0.1,0.25,0.30,0.20),5,1)*W[2]
+w3 <- matrix(c(0.3,0.15,0.30,0.05,0.20),5,1)*W[3]
+w4 <- matrix(c(0.4,0.6),2,1)*W[4]
+w5 <- matrix(c(0.15,0.35,0.10,0.40),4,1)*W[5]
+w=rbind(w1,w2,w3,w4,w5)
+
+##读取原始数据
+tico1 <-read_excel("E:/r/tico1.xlsx")
+tico2 <-read_excel("E:/r/tico2.xlsx")
+
+total_rawtico <- list(tico1,tico2)
+
+tico3 <-read_excel("E:/r/tico3.xlsx")
+total_rawtico <- c(total_rawtico,list(tico3))
+
+##计算历史平均后TICO
+Ave_tico = data.frame(tico1[which(tico1$status==1),])
+ID=tico1[which(tico1$status==1),1]
+ccount=matrix(1,nrow(ID),1)
+Counter<-data.frame(ID,ccount)
+
+total_finaltico <- list(tico1,tico1)
+total_finaltico=total_finaltico[-1]
+
+for(n in 2:3){
+  df = data.frame(total_rawtico[n])
+  num_of_t = nrow(df)
+  ##判断ID是否出现在历史均值表中
+  for(i in 1:num_of_t){
+    flag = (Ave_tico$ID == df[i,1])
+    ##如果状态为0，即没上课，则取历史平均TICO
+    if(df[i,2]==0){
+      ##如果历史平均值里面有对应ID的平均值，则取平均；若没有，不处理
+      if (any(flag)){
+      df[i,9:18]=Ave_tico[which(flag),9:18]
+      }
+    }
+    ##如果状态为1，即上课，则更新历史平均TICO
+    else{
+      ##如果存在历史记录
+      if (any(flag)){
+        Ave_tico[which(flag),9:18]=(Ave_tico[which(flag),9:18]*Counter[which(flag),2]+df[i,9:18])/(Counter[which(flag),2]+1)
+        Counter[which(flag),2] = Counter[which(flag),2] +1
+      }
+      ##如果不存在历史记录,则在末尾插入新数据
+      else{
+        Ave_tico = rbind(Ave_tico,df[i,])
+        Counter = rbind(Counter,c(df[i,1],1))
+      }
+    }
+  }
+  total_finaltico <- c(total_finaltico,list(df))
+}
+
+
+##根据最终TICO计算最后得分
+
+ID = c(0)
+TICOpoint = c(0)
+TICOrank = c(0)
+TICOpoint_all<-data.frame(ID,TICOpoint)
+TICOpoint_all=TICOpoint_all[-1,]
+TICOrank_all<-data.frame(ID,TICOrank)
+TICOrank_all=TICOrank_all[-1,]
+
+for(n in 1:3){
+  Mrd = as.matrix(data.frame(total_finaltico[n]))
+  ##Mrd =as.matrix(do.call(cbind,total_rawtico[1]))
+  TICOpoint <- Mrd[,3:24]%*%w*8.5
+  ID <- Mrd[,1]
+  TICOrank <- classification(TICOpoint)
+  
+  TICOpoint_m <-data.frame(ID,TICOpoint)
+  TICOrank_m <-data.frame(ID,TICOrank)
+  
+  TICOpoint_all<-merge(TICOpoint_all,TICOpoint_m,by="ID",all=TRUE)
+  TICOrank_all<-merge(TICOrank_all,TICOrank_m,by="ID",all=TRUE)
+  
+}
+
+TICOrank_all<-subset(TICOrank_all,select = -2)
+TICOpoint_all<-subset(TICOpoint_all,select = -2)
+
+################################################################################
